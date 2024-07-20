@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RSVP Speed Reader</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            text-align: center;
+        }
+        h1 {
+            margin-bottom: 20px;
+        }
+        #controls {
+            margin-bottom: 20px;
+        }
+        #controls label, #controls input, #controls button {
+            margin: 0 5px;
+        }
+        #rsvp-display {
+            position: relative;
+            font-size: 36px;
+            height: 100px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border: 1px solid #ccc;
+            margin-top: 20px;
+        }
+
+        #focus-dot {
+            position: absolute;
+            width: 6px;
+            height: 6px;
+            background-color: red;
+            border-radius: 50%;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 2;
+        }
+
+        #text-display {
+            position: relative;
+            z-index: 1;
+        }
+        #error-message {
+            color: red;
+            margin-top: 10px;
+        }
+        #file-input-container {
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>RSVP Speed Reader</h1>
+    <div id="file-input-container">
+        <input type="file" id="file-input" accept=".txt" required>
+        <button id="upload-button">Upload and Start</button>
+    </div>
+    <div id="controls" style="display: none;">
+        <label for="wpm">WPM:</label>
+        <input type="number" id="wpm" min="250" max="10000" value="1000" step="10">
+        
+        <label for="words-at-time">Words at a time:</label>
+        <input type="number" id="words-at-time" min="1" max="10" value="2">
+        
+        <label for="font-size">Font size:</label>
+        <input type="number" id="font-size" min="12" max="72" value="36">
+        
+        <button id="start-stop">Start</button>
+        <button id="reset">Reset</button>
+    </div>
+    <div id="rsvp-display">
+        <div id="focus-dot"></div>
+        <div id="text-display"></div>
+    </div>
+    <div id="error-message"></div>
+
+    <script>
+        let content = '';
+        let words = [];
+        let currentIndex = 0;
+        let timer = null;
+        let isPlaying = false;
+
+        const fileInput = document.getElementById('file-input');
+        const uploadButton = document.getElementById('upload-button');
+        const controls = document.getElementById('controls');
+        const display = document.getElementById('rsvp-display');
+        const startStopButton = document.getElementById('start-stop');
+        const resetButton = document.getElementById('reset');
+        const wpmInput = document.getElementById('wpm');
+        const wordsAtTimeInput = document.getElementById('words-at-time');
+        const fontSizeInput = document.getElementById('font-size');
+		const textDisplay = document.getElementById('text-display');
+        const errorMessage = document.getElementById('error-message');
+
+        uploadButton.addEventListener('click', uploadFile);
+        startStopButton.addEventListener('click', toggleStartStop);
+        resetButton.addEventListener('click', reset);
+        wpmInput.addEventListener('change', updateTimer);
+        wordsAtTimeInput.addEventListener('change', updateDisplay);
+        fontSizeInput.addEventListener('change', updateDisplay);
+
+        function uploadFile() {
+            const file = fileInput.files[0];
+            if (!file) {
+                showError('Please select a file.');
+                return;
+            }
+
+            if (file.size > 50 * 1024 * 1024) {
+                showError('File is too large. Maximum file size is 50MB.');
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(data => {
+                        throw new Error(data.error || `HTTP error! status: ${response.status}`);
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                content = data.content;
+                words = content.split(/\s+/);
+                currentIndex = 0;
+                controls.style.display = 'block';
+                updateDisplay();
+                showError('');
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showError(error.message);
+            });
+        }
+
+        function updateDisplay() {
+            const wordsAtTime = parseInt(wordsAtTimeInput.value);
+            const displayWords = words.slice(currentIndex, currentIndex + wordsAtTime).join(' ');
+            textDisplay.textContent = displayWords;
+            textDisplay.style.fontSize = `${fontSizeInput.value}px`;
+        }
+
+        function start() {
+            if (!content) {
+                showError('No content loaded. Please upload a file first.');
+                return;
+            }
+            
+            isPlaying = true;
+            startStopButton.textContent = 'Stop';
+            
+            const wordsPerMinute = parseInt(wpmInput.value);
+            const wordsAtTime = parseInt(wordsAtTimeInput.value);
+            const interval = (60 * 1000) / (wordsPerMinute / wordsAtTime);
+            
+            clearInterval(timer);
+            timer = setInterval(() => {
+                updateDisplay();
+                currentIndex += wordsAtTime;
+                if (currentIndex >= words.length) {
+                    stop();
+                }
+            }, interval);
+        }
+
+        function stop() {
+            isPlaying = false;
+            startStopButton.textContent = 'Start';
+            clearInterval(timer);
+        }
+
+        function toggleStartStop() {
+            if (isPlaying) {
+                stop();
+            } else {
+                start();
+            }
+        }
+
+        function reset() {
+            stop();
+            currentIndex = 0;
+            updateDisplay();
+        }
+
+        function updateTimer() {
+            if (isPlaying) {
+                stop();
+                start();
+            }
+        }
+
+        function showError(message) {
+            errorMessage.textContent = message;
+        }
+    </script>
+</body>
+</html>
